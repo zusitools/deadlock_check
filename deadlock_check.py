@@ -33,6 +33,16 @@ def cycle_search_rec_alt(alt, identifier):
 
 	return False
 
+def cycle_search(graph):
+	global visited
+	
+	for start_node in graph.keys():
+		visited = dict((key, []) for key in graph.keys())
+		if cycle_search_rec_node(start_node, []):
+			return True
+
+	return False
+
 # Data import
 import dataset1
 zuege = dataset1.zuege
@@ -56,7 +66,4 @@ for alternativen in zuege.values():
 zuege = dict((zug, zuege[zug]) for zug in zuege.keys() if zug in blockierend)
 
 # Finde Zyklen im Wait-for-Graphen
-visited = dict((key, []) for key in zuege.keys())
-
-print(visited)
-print(cycle_search_rec_node(zuege.keys()[0], []))
+print(cycle_search(zuege))
