@@ -44,9 +44,9 @@ def cycle_search(graph):
 	return False
 
 # Data import
-import dataset1
-zuege = dataset1.zuege
-register = dataset1.register
+import dataset3 as dataset
+zuege = dataset.zuege
+register = dataset.register
 # End of data import
 
 # Wait-for-Graphen aufbauen: Ersetze Registernummern durch Züge, die dieses Register belegen. Unbelegte Register werden sogleich herausgefiltert.
