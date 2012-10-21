@@ -47,3 +47,5 @@ zuege = {
 		[3, 6, 9]
 	]
 }
+
+eigener_zug = "E3541"
