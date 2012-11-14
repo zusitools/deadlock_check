@@ -88,85 +88,93 @@ if len(waitfor) == 0:
 # Jede Kante A -> B wird mit den Fahrstraßenalternativen beschriftet, auf denen Zug B Zug A blockiert.
 W = nx.DiGraph()
 W.add_edges_from([(zug, waitsfor, {'altnrs' : filter(lambda x : waitsfor in waitfor[zug][x], altnrs(zug))}) for zug in waitfor.keys() for waitsfor in set.union(*waitfor[zug].values())])
-zyklen = nx.simple_cycles(W)
-print(zyklen)
 
-# Schritt 3a: Graph aufteilen in Knoten, die in Kreisen enthalten sind, und solche, die dies nicht sind (letztere sind dann "blockiert", aber nicht an Deadlocks beteiligt)
-# Schritt 4: Abhängigkeiten unter Kreisen finden
-#
-# Kreis A hängt ab von Kreis B, wenn B eine Kante enthält, deren Beschriftung eine Fahrwegalternative ist, die
-# in Kreis A nicht enthalten ist.
-#
-# Dazu wird ein Abhängigkeitsgraph ganz ähnlich dem Wait-For-Graph erstellt.
+# Da Kreise nur innnerhalb starker Zusammenhangskomponenten auftreten, teile zunächst den Graphen in seine Zusammenhangskomponenten auf.
+# Das Berechnen der zu löschenden Züge wird dadurch bei großen Netzen u.U. vereinfacht.
+for K in nx.strongly_connected_component_subgraphs(W):
+	print("=== Zusammenhangskomponente: %s ===" % str(nx.nodes(K)))
 
-# zyklen_abh = { Zug : { FahrstraßenalternativeNr : [Kreise, die diese Fahrstraßenalternative benutzen]  }}
-zyklen_abh = dict((key, dict((altnr, set()) for altnr in altnrs(key))) for key in zuege.keys())
-# zyklen_block = { Kreis : [ (Zug, Fahrstraßenalternative) ] }
-zyklen_block = dict((key, set()) for key in zykelnrs())
+	# Schritt 3a: Graph aufteilen in Knoten, die in Kreisen enthalten sind, und solche, die dies nicht sind (letztere sind dann "blockiert", aber nicht an Deadlocks beteiligt)
+	# Ein Zug ist genau dann nicht in einem Kreis enthalten, wenn seine Zusammenhangskomponente aus nur einem Knoten besteht.
+	if len(nx.nodes(K)) == 1:
+		print('Zug ' + str(nx.nodes(K)[0]) + ' ist nicht in einem Kreis enthalten')
+		continue
 
-for zug in waitfor.keys():
-	# Prüfe, in welchen Kreisen dieser Zug enthalten ist und mit welchen Fahrwegalternativen
-	zyklen_zug = filter(lambda x : zug in zyklen[x], zykelnrs())
+	# Liste alle Kreise in der Zusammenhangskomponente auf (es gibt auf jeden Fall welche, da die Zusammenhangskomponente aus mehr als einem Knoten besteht).
+	zyklen = nx.simple_cycles(K)
+	print(zyklen)
 
-	if len(zyklen_zug) == 0:
-		print('Zug ' + str(zug) + ' ist nicht in einem Kreis enthalten')
-		del zyklen_abh[zug]
-	else:
+	# Schritt 4: Abhängigkeiten unter Kreisen finden
+	#
+	# Kreis A hängt ab von Kreis B, wenn B eine Kante enthält, deren Beschriftung eine Fahrwegalternative ist, die
+	# in Kreis A nicht enthalten ist.
+	#
+	# Dazu wird ein Abhängigkeitsgraph ganz ähnlich dem Wait-For-Graph erstellt.
+
+	# zyklen_abh = { Zug : { FahrstraßenalternativeNr : [Kreise, die diese Fahrstraßenalternative benutzen]  }}
+	zyklen_abh = dict((key, dict((altnr, set()) for altnr in altnrs(key))) for key in nx.nodes(K))
+	# zyklen_block = { Kreis : [ (Zug, Fahrstraßenalternative) ] }
+	zyklen_block = dict((key, set()) for key in zykelnrs())
+
+	for zug in nx.nodes(K):
+		# Prüfe, in welchen Kreisen dieser Zug enthalten ist und mit welchen Fahrwegalternativen
+		zyklen_zug = filter(lambda x : zug in zyklen[x], zykelnrs())
+
 		for altnr in altnrs(zug):
-			zyklen_abh[zug][altnr] = set(filter(lambda z : altnr in W[zug][nachfolger(zug, zyklen[z])]['altnrs'], zyklen_zug))
+			zyklen_abh[zug][altnr] = set(filter(lambda z : altnr in K[zug][nachfolger(zug, zyklen[z])]['altnrs'], zyklen_zug))
 			for zykelnr in zyklen_abh[zug][altnr]:
 				zyklen_block[zykelnr].add((zug, altnr))
 
-print(zyklen_abh)
-print(zyklen_block)
+	print(zyklen_abh)
+	print(zyklen_block)
 
-# Prüft, ob durch das Löschen der gegebene Menge von Zügen alle Kreise aufgehoben werden.
-def hebt_auf(zu_loeschende_zuege):
-	global zyklen_abh, zyklen_block, zyklen
-	geloeschte_zyklen = set()
-	zyklen_abh2 = deepcopy(zyklen_abh)
+	# Prüft, ob durch das Löschen der gegebene Menge von Zügen alle Kreise aufgehoben werden.
+	def hebt_auf(zu_loeschende_zuege):
+		global zyklen_abh, zyklen_block, zyklen
+		geloeschte_zyklen = set()
+		zyklen_abh2 = deepcopy(zyklen_abh)
 
-	while len(zu_loeschende_zuege) > 0 and len(geloeschte_zyklen) < len(zyklen):
-		zu_loeschende_zuege_neu = set()
-		geloeschte_zyklen_neu = set()
-		for zug in zu_loeschende_zuege:
-			# Füge alle Kreise, in denen dieser Zug enthalten ist, in die Liste zu löschender Kreise ein
-			geloeschte_zyklen_neu |= set.union(*zyklen_abh2[zug].values())
-			del zyklen_abh2[zug]
+		while len(zu_loeschende_zuege) > 0 and len(geloeschte_zyklen) < len(zyklen):
+			zu_loeschende_zuege_neu = set()
+			geloeschte_zyklen_neu = set()
+			for zug in zu_loeschende_zuege:
+				# Füge alle Kreise, in denen dieser Zug enthalten ist, in die Liste zu löschender Kreise ein
+				geloeschte_zyklen_neu |= set.union(*zyklen_abh2[zug].values())
+				del zyklen_abh2[zug]
 
-		geloeschte_zyklen |= geloeschte_zyklen_neu
+			geloeschte_zyklen |= geloeschte_zyklen_neu
 
-		if len(geloeschte_zyklen) >= len(zyklen):
+			if len(geloeschte_zyklen) >= len(zyklen):
+				break
+
+			if len(geloeschte_zyklen_neu) > 0:
+				for zug, altnr in set.union(*[zyklen_block[zykel] for zykel in geloeschte_zyklen_neu]):
+					if zug in zu_loeschende_zuege_neu or not zug in zyklen_abh2:
+						continue
+
+					zyklen_abh2[zug][altnr] -= geloeschte_zyklen_neu
+					if len(zyklen_abh2[zug][altnr]) == 0:
+						zu_loeschende_zuege_neu.add(zug)
+
+			zu_loeschende_zuege = set(zu_loeschende_zuege_neu)
+
+		return len(geloeschte_zyklen) >= len(zyklen)
+
+	# Schritt 5: Minimale Menge M finden, die alle Kreise aufhebt.
+	# Ist allerdings der eigene Zug in solch einer minimalen Menge enthalten, wird weitergesucht.
+	aufhebend = []
+	gefunden = False
+	for anzahl_zuege in range(1, len(zyklen_abh.keys())):
+		for comb in combinations(zyklen_abh.keys(), anzahl_zuege):
+			if hebt_auf(comb):
+				aufhebend.append(comb)
+				if not eigener_zug in comb:
+					gefunden = True
+
+		if gefunden:
 			break
 
-		if len(geloeschte_zyklen_neu) > 0:
-			for zug, altnr in set.union(*[zyklen_block[zykel] for zykel in geloeschte_zyklen_neu]):
-				if zug in zu_loeschende_zuege_neu or not zug in zyklen_abh2:
-					continue
-
-				zyklen_abh2[zug][altnr] -= geloeschte_zyklen_neu
-				if len(zyklen_abh2[zug][altnr]) == 0:
-					zu_loeschende_zuege_neu.add(zug)
-
-		zu_loeschende_zuege = set(zu_loeschende_zuege_neu)
-
-	return len(geloeschte_zyklen) >= len(zyklen)
-
-# Schritt 5: Minimale Menge M finden, die alle Kreise aufhebt.
-# Ist allerdings der eigene Zug in solch einer minimalen Menge enthalten, wird weitergesucht.
-aufhebend = []
-gefunden = False
-for anzahl_zuege in range(1, len(zyklen_abh.keys())):
-	for comb in combinations(zyklen_abh.keys(), anzahl_zuege):
-		if hebt_auf(comb):
-			aufhebend.append(comb)
-			if not eigener_zug in comb:
-				gefunden = True
-
-	if gefunden:
-		break
-
-print(aufhebend)
+	print("Minimale aufhebende Mengen: %s" % str(aufhebend))
 
 # Für Debug-Zwecke: Graph zeichnen
 if False:
